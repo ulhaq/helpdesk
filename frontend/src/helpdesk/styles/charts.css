@@ -1,0 +1,32 @@
+/*
+ * Report chart tokens. Series colors are categorical slots 1-2 of the dataviz
+ * reference palette, validated (lightness band, chroma, CVD and normal-vision
+ * separation, 3:1 contrast) against this app's card surfaces: #ffffff light,
+ * #111622 dark. Chrome and text come from the app theme tokens.
+ */
+.hd-viz {
+  --hd-viz-series-1: #2a78d6;
+  --hd-viz-series-2: #eb6834;
+  --hd-viz-grid: hsl(var(--border));
+  --hd-viz-axis: hsl(var(--muted-foreground) / 0.5);
+  --hd-viz-text: hsl(var(--muted-foreground));
+  --hd-viz-surface: hsl(var(--card));
+}
+
+.dark .hd-viz {
+  --hd-viz-series-1: #3987e5;
+  --hd-viz-series-2: #d95926;
+}
+
+.hd-viz-tick {
+  fill: var(--hd-viz-text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hd-viz-bar {
+  background: var(--hd-viz-series-1);
+  /* Rounded data end, square at the baseline. */
+  border-radius: 0 4px 4px 0;
+  transition: opacity 0.15s ease;
+}

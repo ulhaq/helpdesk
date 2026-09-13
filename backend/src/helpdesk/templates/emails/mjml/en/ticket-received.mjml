@@ -1,0 +1,37 @@
+<mjml>
+  <mj-head>
+    <mj-title>[#{{ ticket_number }}] We received your request</mj-title>
+    <mj-preview>Thanks for getting in touch with {{ organization_name }}</mj-preview>
+    <mj-include path="../../../../../platform/templates/emails/mjml/shared/_head.mjml" />
+  </mj-head>
+  <mj-body background-color="#eff1f5" width="600px">
+    <mj-wrapper background-color="#ffffff" border="1px solid #e0e3eb" border-radius="12px" padding="0" css-class="app-card">
+      <mj-include path="../../../../../platform/templates/emails/mjml/shared/_header.mjml" />
+
+      <mj-section padding="28px 32px 32px 32px" css-class="app-pad">
+        <mj-column>
+          <mj-text font-size="13px" font-weight="600" color="#636b7e" text-transform="uppercase" letter-spacing="0.04em" padding="0 0 10px 0">
+            {{ organization_name }} support
+          </mj-text>
+          <mj-text font-size="22px" font-weight="700" color="#131825" line-height="1.3" padding="0 0 14px 0">
+            We received your request
+          </mj-text>
+
+          <mj-text padding="0 0 8px 0">
+            Thanks for getting in touch. Your request #{{ ticket_number }} "{{ ticket_subject }}" has been received, and we will reply as soon as we can.
+          </mj-text>
+
+          <mj-button href="{{ conversation_url }}" align="left" padding="16px 0 0 0">
+            View your conversation
+          </mj-button>
+
+          <mj-text padding="20px 0 0 0" color="#636b7e" font-size="14px">
+            Keep this email: the link lets you follow the conversation and reply.
+          </mj-text>
+        </mj-column>
+      </mj-section>
+    </mj-wrapper>
+
+    <mj-include path="../../../../../platform/templates/emails/mjml/en/partials/_footer.mjml" />
+  </mj-body>
+</mjml>
