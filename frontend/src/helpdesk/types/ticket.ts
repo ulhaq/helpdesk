@@ -63,3 +63,16 @@ export interface TicketMessageIn {
   body: string
   is_internal?: boolean
 }
+
+export interface AiSource {
+  title: string
+  /** Help center article slug. */
+  slug: string
+  /** The passage the draft relies on. */
+  cited_text: string
+}
+
+export interface ReplySuggestion {
+  text: string
+  sources: AiSource[]
+}

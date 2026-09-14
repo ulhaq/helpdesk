@@ -1,5 +1,18 @@
+from collections.abc import Iterator
+
 import pytest
 from fastapi.testclient import TestClient
+
+from src.helpdesk.assistant import get_ai_client
+from src.main import app
+
+
+@pytest.fixture(autouse=True)
+def no_ai_client() -> Iterator[None]:
+    # Independent of any ANTHROPIC_API_KEY in the environment.
+    app.dependency_overrides[get_ai_client] = lambda: None
+    yield
+    app.dependency_overrides.pop(get_ai_client, None)
 
 
 def test_support_site_is_created_on_first_use(admin_authenticated: TestClient) -> None:
@@ -30,6 +43,7 @@ def test_update_support_site(admin_authenticated: TestClient) -> None:
         "brand_color": "#ff0000",
         "greeting": "Hi there!",
         "help_center_enabled": True,
+        "ai_answers_enabled": False,
     }
 
     response = admin_authenticated.patch(

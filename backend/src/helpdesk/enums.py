@@ -80,6 +80,9 @@ class HelpdeskUsageMetric(StrEnum):
     TICKETS_PER_MONTH = "tickets_per_month"
     # Plan setting key capping how many knowledge base articles may exist.
     KB_ARTICLES = "kb_articles"
+    # Plan setting key capping Claude-powered reply drafts and widget answers
+    # per billing period.
+    AI_REQUESTS_PER_MONTH = "ai_requests_per_month"
 
 
 class HelpdeskNotificationType(StrEnum):
@@ -91,6 +94,14 @@ class HelpdeskNotificationType(StrEnum):
 
 
 class HelpdeskErrorCode(ErrorCodeEnum):
+    AI_UNAVAILABLE = (
+        "ai_unavailable",
+        "The AI assistant is not available right now",
+    )
+    AI_DECLINED = (
+        "ai_declined",
+        "The AI assistant could not help with this request",
+    )
     CONTACT_EMAIL_TAKEN = (
         "contact_email_taken",
         "A contact with this email already exists",

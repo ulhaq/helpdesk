@@ -29,6 +29,7 @@ This file provides comprehensive guidance for working with this FastAPI multi-te
 | `src/helpdesk/services/reports.py` | Report summary computed from one bounded, scoped query |
 | `src/helpdesk/contact_token.py` | Signed contact tokens (ticket-scoped when unverified, contact-scoped when emailed) |
 | `src/helpdesk/markdown.py` | Article rendering with raw HTML disabled |
+| `src/helpdesk/assistant.py`, `services/assistant.py` | Claude integration: `get_ai_client` dependency (None without `ANTHROPIC_API_KEY`; tests override it with a fake), cited generation over published articles, reply drafts and widget answers (`ai_requests_per_month` limit) |
 | `src/helpdesk/hooks.py` | `MEMBER_REMOVED` → unassign the member's tickets |
 | `src/helpdesk/worker.py` | `run_auto_close_loop` - closes tickets left resolved, recording `worker_run` rows |
 | `src/helpdesk/config.py` | `HelpdeskSettings` (`env_prefix="helpdesk_"`: contact token lifetime, auto-close) |

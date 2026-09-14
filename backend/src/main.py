@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bootstrap import bootstrap
 from src.helpdesk.routers import (
+    assistant,
     contacts,
     help_center,
     kb,
@@ -313,6 +314,9 @@ app.include_router(
 )
 app.include_router(
     widget.router, tags=["Widget"], prefix="/v1", include_in_schema=False
+)
+app.include_router(
+    assistant.router, tags=["Assistant"], prefix="/v1", include_in_schema=False
 )
 app.include_router(
     kb.router, tags=["Knowledge Base"], prefix="/v1", include_in_schema=False

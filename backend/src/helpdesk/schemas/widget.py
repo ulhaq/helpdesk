@@ -15,6 +15,8 @@ class WidgetConfigOut(BaseModel):
     greeting: str | None
     # The widget offers article search when the help center is on.
     help_center_enabled: bool
+    # Questions typed into article search also get a cited AI answer.
+    ai_answers_enabled: bool
 
 
 class WidgetTicketIn(BaseModel):

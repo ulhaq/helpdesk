@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -5,7 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from src.helpdesk.assistant import get_ai_client
 from src.helpdesk.enums import HelpdeskUsageMetric
+from src.main import app
 from src.platform.models.billing import PlanSetting
 from src.platform.models.notification import Notification
 from tests.conftest import TestSessionLocal
@@ -23,6 +26,14 @@ def widget_email(mocker: Any) -> Any:
 @pytest.fixture(autouse=True)
 def ticket_email(mocker: Any) -> Any:
     return mocker.patch("src.helpdesk.services.ticket.send_email")
+
+
+@pytest.fixture(autouse=True)
+def no_ai_client() -> Iterator[None]:
+    # Independent of any ANTHROPIC_API_KEY in the environment.
+    app.dependency_overrides[get_ai_client] = lambda: None
+    yield
+    app.dependency_overrides.pop(get_ai_client, None)
 
 
 @pytest.fixture
@@ -71,6 +82,7 @@ def test_widget_config(client: TestClient, slug: str) -> None:
         "brand_color": "#293e70",
         "greeting": None,
         "help_center_enabled": True,
+        "ai_answers_enabled": False,
     }
 
 

@@ -59,13 +59,14 @@ class WidgetService(BaseService):
         self.tickets = repos.ticket
         self.messages = repos.ticket_message
 
-    async def get_config(self, slug: str) -> WidgetConfigOut:
+    async def get_config(self, slug: str, *, ai_configured: bool) -> WidgetConfigOut:
         site = await self._site(slug)
         return WidgetConfigOut(
             organization_name=await self.sites.get_organization_name(site),
             brand_color=site.brand_color,
             greeting=site.greeting,
             help_center_enabled=site.help_center_enabled,
+            ai_answers_enabled=ai_configured and site.help_center_enabled,
         )
 
     async def create_ticket(

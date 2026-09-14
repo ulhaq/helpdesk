@@ -110,6 +110,19 @@ meta:
                   <Lock class="w-4 h-4 mr-2" />
                   {{ $t('tickets.detail.internalNote') }}
                 </Button>
+                <Button
+                  v-if="ticketsStore.assistantEnabled && mode === 'reply' && !isClosed"
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  class="ml-auto"
+                  :disabled="drafting || sending"
+                  @click="draftReply"
+                >
+                  <Loader2 v-if="drafting" class="w-4 h-4 mr-2 animate-spin" />
+                  <Sparkles v-else class="w-4 h-4 mr-2" />
+                  {{ $t('tickets.detail.draftWithAi') }}
+                </Button>
               </div>
               <Textarea
                 v-model="body"
@@ -122,8 +135,15 @@ meta:
                     ? $t('tickets.detail.notePlaceholder')
                     : $t('tickets.detail.replyPlaceholder')
                 "
-                :disabled="sending"
+                :disabled="sending || drafting"
               />
+              <p v-if="draftSources.length" class="text-xs text-muted-foreground">
+                {{
+                  $t('tickets.detail.draftSources', {
+                    titles: draftSources.map((source) => source.title).join(', '),
+                  })
+                }}
+              </p>
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <p class="text-xs text-muted-foreground">{{ composerHint }}</p>
                 <Button type="submit" size="sm" :disabled="sending || !body.trim()">
@@ -254,7 +274,7 @@ meta:
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Inbox, Loader2, Lock, Send, Trash2, UserCheck } from 'lucide-vue-next'
+import { ArrowLeft, Inbox, Loader2, Lock, Send, Sparkles, Trash2, UserCheck } from 'lucide-vue-next'
 import { Badge } from '@/platform/components/ui/badge'
 import { Button } from '@/platform/components/ui/button'
 import { Label } from '@/platform/components/ui/label'
@@ -283,7 +303,7 @@ import type { UserOut } from '@/platform/types'
 import TicketStatusBadge from '@/helpdesk/components/tickets/TicketStatusBadge.vue'
 import { useTicketsStore } from '@/helpdesk/stores/tickets'
 import { TICKET_PRIORITIES, TICKET_STATUSES } from '@/helpdesk/constants'
-import type { TicketPatch, TicketPriority, TicketStatus } from '@/helpdesk/types/ticket'
+import type { AiSource, TicketPatch, TicketPriority, TicketStatus } from '@/helpdesk/types/ticket'
 
 const UNASSIGNED = '__unassigned__'
 
@@ -401,10 +421,41 @@ async function send() {
     await ticketsStore.reply(ticket.value.id, { body: body.value, is_internal: isNote })
     toast({ title: isNote ? t('tickets.detail.noteAdded') : t('tickets.detail.replySent') })
     body.value = ''
+    draftSources.value = []
   } catch (err: unknown) {
     handleError(err)
   } finally {
     sending.value = false
+  }
+}
+
+// AI reply drafts - offered only when the backend has Claude configured.
+const drafting = ref(false)
+const draftSources = ref<AiSource[]>([])
+
+onMounted(() => {
+  ticketsStore.loadAssistantStatus().catch(() => undefined)
+})
+
+async function draftReply() {
+  if (!ticket.value) return
+  if (body.value.trim()) {
+    const ok = await confirm(
+      t('tickets.detail.replaceDraftTitle'),
+      t('tickets.detail.replaceDraftDescription'),
+      t('tickets.detail.replaceDraftConfirm'),
+    )
+    if (!ok) return
+  }
+  drafting.value = true
+  try {
+    const suggestion = await ticketsStore.suggestReply(ticket.value.id)
+    body.value = suggestion.text
+    draftSources.value = suggestion.sources
+  } catch (err: unknown) {
+    handleError(err)
+  } finally {
+    drafting.value = false
   }
 }
 

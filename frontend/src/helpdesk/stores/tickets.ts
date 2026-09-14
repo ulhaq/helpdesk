@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { ticketsApi } from '@/helpdesk/api/tickets'
 import type { PaginatedResponse } from '@/platform/types'
 import type {
+  ReplySuggestion,
   TicketDetailOut,
   TicketIn,
   TicketMessageIn,
@@ -63,10 +64,36 @@ export const useTicketsStore = defineStore('tickets', () => {
     return message
   }
 
+  // Whether the backend has Claude configured for reply drafts.
+  const assistantEnabled = ref(false)
+
+  async function loadAssistantStatus(): Promise<boolean> {
+    const { data } = await ticketsApi.assistantStatus()
+    assistantEnabled.value = data.enabled
+    return data.enabled
+  }
+
+  async function suggestReply(id: number): Promise<ReplySuggestion> {
+    const { data } = await ticketsApi.suggestReply(id)
+    return data
+  }
+
   async function remove(id: number): Promise<void> {
     await ticketsApi.remove(id)
     if (current.value?.id === id) current.value = null
   }
 
-  return { current, list, load, create, patch, assign, reply, remove }
+  return {
+    current,
+    assistantEnabled,
+    list,
+    load,
+    create,
+    patch,
+    assign,
+    reply,
+    loadAssistantStatus,
+    suggestReply,
+    remove,
+  }
 })

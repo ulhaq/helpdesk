@@ -1,6 +1,7 @@
 import { apiClient } from '@/platform/api/client'
 import type { PaginatedResponse } from '@/platform/types'
 import type {
+  ReplySuggestion,
   TicketDetailOut,
   TicketIn,
   TicketMessageIn,
@@ -34,6 +35,14 @@ export const ticketsApi = {
 
   reply(id: number, data: TicketMessageIn) {
     return apiClient.post<TicketMessageOut>(`/tickets/${id}/messages`, data)
+  },
+
+  suggestReply(id: number) {
+    return apiClient.post<ReplySuggestion>(`/tickets/${id}/reply-suggestion`)
+  },
+
+  assistantStatus() {
+    return apiClient.get<{ enabled: boolean }>('/helpdesk/assistant')
   },
 
   remove(id: number) {

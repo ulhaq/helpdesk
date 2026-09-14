@@ -3,7 +3,8 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
-from httpx import Headers, Response
+from httpx import Headers
+from httpx2 import Response
 from sqlalchemy import delete, select
 
 from src.main import app

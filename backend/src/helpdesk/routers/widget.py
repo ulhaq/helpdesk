@@ -6,9 +6,12 @@ Customers are identified by the `X-Contact-Token` header (see
 
 from typing import Annotated
 
+from anthropic import AsyncAnthropic
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request, status
 
+from src.helpdesk.assistant import get_ai_client
 from src.helpdesk.contact_token import ContactAccess, read_contact_token
+from src.helpdesk.schemas.assistant import WidgetAnswerOut, WidgetQuestionIn
 from src.helpdesk.schemas.widget import (
     WidgetAccessLinkIn,
     WidgetConfigOut,
@@ -19,6 +22,7 @@ from src.helpdesk.schemas.widget import (
     WidgetTicketIn,
     WidgetTicketListOut,
 )
+from src.helpdesk.services.assistant import WidgetAnswerService
 from src.helpdesk.services.widget import WidgetService
 from src.platform.core.exceptions import NotAuthenticatedException
 from src.platform.core.limiter import limiter
@@ -41,9 +45,10 @@ async def contact_access(
 async def get_widget_config(
     request: Request,
     service: Annotated[WidgetService, Depends()],
+    ai_client: Annotated[AsyncAnthropic | None, Depends(get_ai_client)],
     slug: SlugPath,
 ) -> WidgetConfigOut:
-    return await service.get_config(slug)
+    return await service.get_config(slug, ai_configured=ai_client is not None)
 
 
 @router.post("/tickets", status_code=status.HTTP_201_CREATED)
@@ -104,3 +109,14 @@ async def reply_to_my_ticket(
     message_in: WidgetMessageIn,
 ) -> WidgetMessageOut:
     return await service.reply(slug, access, ticket_id, message_in)
+
+
+@router.post("/answers", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def answer_a_question(
+    request: Request,
+    service: Annotated[WidgetAnswerService, Depends()],
+    slug: SlugPath,
+    question_in: WidgetQuestionIn,
+) -> WidgetAnswerOut:
+    return await service.answer(slug, question_in)

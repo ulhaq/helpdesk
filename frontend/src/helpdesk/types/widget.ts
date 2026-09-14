@@ -1,4 +1,4 @@
-import type { TicketStatus } from '@/helpdesk/types/ticket'
+import type { AiSource, TicketStatus } from '@/helpdesk/types/ticket'
 import type { SupportedLocale } from '@/plugins/i18n'
 
 export interface WidgetConfig {
@@ -6,6 +6,7 @@ export interface WidgetConfig {
   brand_color: string
   greeting: string | null
   help_center_enabled: boolean
+  ai_answers_enabled: boolean
 }
 
 export interface WidgetMessage {
@@ -51,4 +52,11 @@ export interface WidgetTicketIn {
 export interface WidgetAccessLinkIn {
   email: string
   locale?: SupportedLocale
+}
+
+export interface WidgetAnswer {
+  /** False when no answer could be grounded in a help article. */
+  answered: boolean
+  text: string | null
+  sources: AiSource[]
 }

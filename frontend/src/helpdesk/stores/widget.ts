@@ -4,6 +4,7 @@ import { isAxiosError } from 'axios'
 import { widgetApi } from '@/helpdesk/api/widget'
 import type { SupportedLocale } from '@/plugins/i18n'
 import type {
+  WidgetAnswer,
   WidgetConfig,
   WidgetTicket,
   WidgetTicketDetail,
@@ -134,6 +135,11 @@ export const useWidgetStore = defineStore('widget', () => {
     await openTicket(ticket.id)
   }
 
+  async function ask(question: string): Promise<WidgetAnswer> {
+    const { data } = await widgetApi.answer(slug.value, question)
+    return data
+  }
+
   async function requestAccessLink(email: string, locale?: SupportedLocale): Promise<void> {
     await widgetApi.requestAccessLink(slug.value, { email, locale })
   }
@@ -150,5 +156,6 @@ export const useWidgetStore = defineStore('widget', () => {
     createTicket,
     reply,
     requestAccessLink,
+    ask,
   }
 })

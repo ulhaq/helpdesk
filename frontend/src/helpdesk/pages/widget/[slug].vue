@@ -62,6 +62,33 @@ meta:
               <Search class="h-4 w-4" />
             </Button>
           </div>
+          <div v-if="answering" class="space-y-2 rounded-lg border p-4" role="status">
+            <Skeleton class="h-4 w-3/4" />
+            <Skeleton class="h-4 w-1/2" />
+            <span class="sr-only">{{ $t('widget.answering') }}</span>
+          </div>
+          <div
+            v-else-if="aiAnswer?.answered"
+            class="space-y-2 rounded-lg border bg-muted/40 p-4"
+            aria-live="polite"
+          >
+            <p class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Sparkles class="h-3.5 w-3.5" aria-hidden="true" />
+              {{ $t('widget.aiAnswerLabel') }}
+            </p>
+            <p class="whitespace-pre-wrap text-sm">{{ aiAnswer.text }}</p>
+            <ul class="space-y-1">
+              <li v-for="source in aiAnswer.sources" :key="source.slug">
+                <button
+                  type="button"
+                  class="text-left text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  @click="openArticle(source.slug)"
+                >
+                  {{ source.title }}
+                </button>
+              </li>
+            </ul>
+          </div>
           <p v-if="articleResults && !articleResults.length" class="text-sm text-muted-foreground">
             {{ $t('widget.noArticles') }}
           </p>
@@ -330,7 +357,7 @@ meta:
 import { computed, defineComponent, h, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Loader2, MessageSquarePlus, Search, Send, X } from 'lucide-vue-next'
+import { ArrowLeft, Loader2, MessageSquarePlus, Search, Send, Sparkles, X } from 'lucide-vue-next'
 import { Badge } from '@/platform/components/ui/badge'
 import { Button } from '@/platform/components/ui/button'
 import { Input } from '@/platform/components/ui/input'
@@ -347,6 +374,7 @@ import MarkdownContent from '@/helpdesk/components/kb/MarkdownContent.vue'
 import { useHelpCenterStore } from '@/helpdesk/stores/helpCenter'
 import { useWidgetStore } from '@/helpdesk/stores/widget'
 import type { HelpArticle, HelpArticleSummary } from '@/helpdesk/types/kb'
+import type { WidgetAnswer } from '@/helpdesk/types/widget'
 import { brandColors } from '@/helpdesk/utils/brand'
 
 type View = 'home' | 'new' | 'ticket' | 'access' | 'article'
@@ -517,8 +545,12 @@ const articleResults = ref<HelpArticleSummary[] | null>(null)
 const currentArticle = ref<HelpArticle | null>(null)
 const searchingArticles = ref(false)
 
+const aiAnswer = ref<WidgetAnswer | null>(null)
+const answering = ref(false)
+
 async function searchArticles() {
   const q = articleQuery.value.trim()
+  aiAnswer.value = null
   if (!q) {
     articleResults.value = null
     return
@@ -531,6 +563,17 @@ async function searchArticles() {
     handleError(err)
   } finally {
     searchingArticles.value = false
+  }
+  // Article results show immediately; the AI answer follows when ready.
+  if (!config.value?.ai_answers_enabled) return
+  answering.value = true
+  try {
+    const answer = await widgetStore.ask(q)
+    if (articleQuery.value.trim() === q) aiAnswer.value = answer
+  } catch {
+    // Search results and "start a conversation" still work without it.
+  } finally {
+    answering.value = false
   }
 }
 

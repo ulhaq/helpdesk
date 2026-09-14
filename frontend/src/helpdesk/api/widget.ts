@@ -1,6 +1,7 @@
 import { publicClient as widgetClient } from '@/helpdesk/api/publicClient'
 import type {
   WidgetAccessLinkIn,
+  WidgetAnswer,
   WidgetConfig,
   WidgetMessage,
   WidgetTicketCreated,
@@ -31,6 +32,10 @@ export const widgetApi = {
 
   getTicket(slug: string, token: string, id: number) {
     return widgetClient.get<WidgetTicketDetail>(`${sitePath(slug)}/tickets/${id}`, asContact(token))
+  },
+
+  answer(slug: string, question: string) {
+    return widgetClient.post<WidgetAnswer>(`${sitePath(slug)}/answers`, { question })
   },
 
   reply(slug: string, token: string, id: number, body: string) {
