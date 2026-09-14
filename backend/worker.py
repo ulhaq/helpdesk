@@ -1,9 +1,9 @@
 """Standalone background worker - run as a single instance alongside the web process.
 
-Runs ticket auto-close, AI request log retention, GDPR retention, billing
-cleanup, and trial reminder loops. Keeping these out of the web process means
-horizontal scaling of the API does not cause duplicate job runs or duplicate
-emails.
+Runs ticket auto-close, AI request log retention, knowledge embedding, GDPR
+retention, billing cleanup, and trial reminder loops. Keeping these out of the
+web process means horizontal scaling of the API does not cause duplicate job
+runs or duplicate emails.
 
 Usage:
     uv run python worker.py
@@ -18,6 +18,7 @@ from src.bootstrap import bootstrap
 from src.helpdesk.worker import (
     run_ai_request_log_retention_loop,
     run_auto_close_loop,
+    run_embedding_loop,
 )
 from src.platform.core.database import ASYNC_SESSION_LOCAL
 from src.platform.core.logging import setup_logging
@@ -43,6 +44,7 @@ async def main() -> None:
     tasks = [
         asyncio.create_task(run_auto_close_loop(ASYNC_SESSION_LOCAL)),
         asyncio.create_task(run_ai_request_log_retention_loop(ASYNC_SESSION_LOCAL)),
+        asyncio.create_task(run_embedding_loop(ASYNC_SESSION_LOCAL)),
         asyncio.create_task(run_gdpr_retention_loop(ASYNC_SESSION_LOCAL)),
         asyncio.create_task(run_stale_checkout_cleanup_loop(ASYNC_SESSION_LOCAL)),
         asyncio.create_task(run_trial_reminder_loop(ASYNC_SESSION_LOCAL)),

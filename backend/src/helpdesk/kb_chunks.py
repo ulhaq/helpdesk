@@ -1,30 +1,43 @@
-"""Splits knowledge base articles into sections for AI retrieval.
+"""Splits knowledge text into sections for AI retrieval.
 
-Articles are Markdown, so they're split at headings (ignoring `#` lines inside
-code fences). A section longer than `MAX_CHUNK_CHARS` is split further at
-paragraph breaks. Every chunk carries its heading trail ("Article > Section >
-Subsection") so it still makes sense when it's the only part of the article a
-request sees.
+Markdown (help center articles, .md uploads, text with `#` headings) is split
+at headings, ignoring `#` lines inside code fences, and every chunk carries its
+heading trail ("Article > Section > Subsection") so it still makes sense on
+its own.
+
+Plain text has no such anchors, so it's cut into windows of at most
+`MAX_CHUNK_CHARS` that end at the most natural break available - paragraph,
+line, sentence, then word - and neighbouring windows overlap by about
+`OVERLAP_CHARS`, so a fact straddling a boundary is whole in one of them.
 """
 
 import re
 from dataclasses import dataclass
 
 MAX_CHUNK_CHARS = 3_000
+OVERLAP_CHARS = 300
 
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
+_ANY_HEADING = re.compile(r"^#{1,6}\s+\S", re.MULTILINE)
 _FENCE = re.compile(r"^\s*(```|~~~)")
-_PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
+_WHITESPACE = re.compile(r"\s")
+# Cut points, best first.
+_BREAKS = ("\n\n", "\n", ". ", "? ", "! ", "; ", ", ", " ")
 
 
 @dataclass(frozen=True)
-class ArticleChunk:
+class TextChunk:
     heading: str
     content: str
 
 
-def split_article(title: str, body: str) -> list[ArticleChunk]:
-    chunks: list[ArticleChunk] = []
+def looks_like_markdown(text: str) -> bool:
+    """Whether text has Markdown headings worth splitting at."""
+    return _ANY_HEADING.search(text) is not None
+
+
+def split_markdown(title: str, body: str) -> list[TextChunk]:
+    chunks: list[TextChunk] = []
     trail: list[tuple[int, str]] = []
     lines: list[str] = []
     in_fence = False
@@ -35,7 +48,7 @@ def split_article(title: str, body: str) -> list[ArticleChunk]:
         if not content:
             return
         heading = " > ".join([title, *(text for _, text in trail)])
-        chunks.extend(ArticleChunk(heading, piece) for piece in _pieces(content))
+        chunks.extend(TextChunk(heading, piece) for piece in _windows(content, 0))
 
     for line in body.splitlines():
         if _FENCE.match(line):
@@ -50,28 +63,46 @@ def split_article(title: str, body: str) -> list[ArticleChunk]:
         trail.append((level, match.group(2)))
     flush()
 
-    # An article without body text is still findable by its title.
-    return chunks or [ArticleChunk(title, title)]
+    # Text without a body is still findable by its title.
+    return chunks or [TextChunk(title, title)]
 
 
-def _pieces(content: str) -> list[str]:
-    if len(content) <= MAX_CHUNK_CHARS:
-        return [content]
+# Name used by the kb_retrieval migration to chunk existing articles.
+split_article = split_markdown
+
+
+def split_plain_text(title: str, text: str) -> list[TextChunk]:
+    pieces = _windows(text.strip(), OVERLAP_CHARS)
+    return [TextChunk(title, piece) for piece in pieces] or [TextChunk(title, title)]
+
+
+def _windows(text: str, overlap: int) -> list[str]:
     pieces: list[str] = []
-    current = ""
-    for paragraph in _PARAGRAPH_BREAK.split(content):
-        while len(paragraph) > MAX_CHUNK_CHARS:
-            if current:
-                pieces.append(current)
-                current = ""
-            pieces.append(paragraph[:MAX_CHUNK_CHARS])
-            paragraph = paragraph[MAX_CHUNK_CHARS:]
-        candidate = f"{current}\n\n{paragraph}" if current else paragraph
-        if len(candidate) > MAX_CHUNK_CHARS:
-            pieces.append(current)
-            current = paragraph
+    start = 0
+    while start < len(text):
+        end = start + MAX_CHUNK_CHARS
+        if end >= len(text):
+            end = len(text)
         else:
-            current = candidate
-    if current.strip():
-        pieces.append(current)
+            # Never cut in the first half of a window: pieces stay substantial.
+            end = _natural_break(text, start + MAX_CHUNK_CHARS // 2, end)
+        if piece := text[start:end].strip():
+            pieces.append(piece)
+        if end == len(text):
+            break
+        start = _word_start(text, end - overlap, end) if overlap else end
     return pieces
+
+
+def _natural_break(text: str, lo: int, hi: int) -> int:
+    for separator in _BREAKS:
+        index = text.rfind(separator, lo, hi)
+        if index != -1:
+            return index + len(separator)
+    return hi
+
+
+def _word_start(text: str, position: int, end: int) -> int:
+    """Start an overlapping window after whitespace, not mid-word."""
+    match = _WHITESPACE.search(text, position, end)
+    return match.end() if match else position

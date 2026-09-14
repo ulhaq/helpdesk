@@ -24,6 +24,7 @@ from src.helpdesk.routers import (
     contacts,
     help_center,
     kb,
+    knowledge,
     reports,
     support_site,
     tickets,
@@ -320,6 +321,12 @@ app.include_router(
 )
 app.include_router(
     kb.router, tags=["Knowledge Base"], prefix="/v1", include_in_schema=False
+)
+app.include_router(
+    knowledge.router,
+    tags=["Internal Knowledge"],
+    prefix="/v1",
+    include_in_schema=False,
 )
 app.include_router(
     reports.router, tags=["Reports"], prefix="/v1", include_in_schema=False

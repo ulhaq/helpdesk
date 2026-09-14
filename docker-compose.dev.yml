@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # Postgres 16 with the pgvector extension (semantic knowledge search).
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME}
@@ -60,6 +61,10 @@ services:
       dockerfile: ${DOCKERFILE:-Dockerfile.dev}
     restart: unless-stopped
     env_file: ./backend/.env
+    # Lets the container reach services on the host, e.g. a local Ollama
+    # embedding model at http://host.docker.internal:11434 (needed on Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
@@ -82,6 +87,8 @@ services:
       dockerfile: ${DOCKERFILE:-Dockerfile.dev}
     restart: unless-stopped
     env_file: ./backend/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: uv run watchfiles --filter python "python worker.py"
     volumes:
       - ./backend:/app

@@ -65,9 +65,11 @@ export interface TicketMessageIn {
 }
 
 export interface AiSource {
+  /** `document` sources are internal knowledge - agents only. */
+  source_type: 'article' | 'document'
   title: string
-  /** Help center article slug. */
-  slug: string
+  /** Help center article slug; null for internal documents. */
+  slug: string | null
   /** The passage the draft relies on. */
   cited_text: string
 }

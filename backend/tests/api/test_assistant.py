@@ -161,6 +161,7 @@ def test_suggest_a_reply(admin_authenticated: TestClient, claude: FakeClaude) ->
         "text": "Hi Jane, please check your spam folder.",
         "sources": [
             {
+                "source_type": "article",
                 "title": "Reset your password",
                 "slug": reset["slug"],
                 "cited_text": "Use the reset link.",
@@ -272,6 +273,7 @@ def test_widget_answers_from_the_help_center(
         "text": "Orders ship in 2 days.",
         "sources": [
             {
+                "source_type": "article",
                 "title": "Shipping times",
                 "slug": article["slug"],
                 "cited_text": "Orders ship",

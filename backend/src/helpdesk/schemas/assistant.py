@@ -2,15 +2,19 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from src.helpdesk.enums import KnowledgeSourceType
+
 
 class AssistantStatusOut(BaseModel):
     enabled: bool
 
 
 class AiSourceOut(BaseModel):
+    source_type: KnowledgeSourceType
     title: str
-    slug: str
-    # The passage of the article the text relies on.
+    # Help center article slug; null for internal documents (agents only).
+    slug: str | None
+    # The passage the text relies on.
     cited_text: str
 
 
@@ -28,4 +32,5 @@ class WidgetAnswerOut(BaseModel):
     # unavailable) - the widget then offers article results and a human.
     answered: bool
     text: str | None
+    # Only ever help center articles.
     sources: list[AiSourceOut]

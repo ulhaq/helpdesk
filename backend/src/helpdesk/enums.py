@@ -65,8 +65,10 @@ class AiFeature(StrEnum):
 class AiRetrievalMode(StrEnum):
     # The whole (small) published help center was sent.
     FULL = "full"
-    # Only the best-matching article sections were sent.
+    # Only the best-matching sections were sent, ranked by full-text search.
     SEARCH = "search"
+    # As SEARCH, with full-text and semantic (embedding) rankings fused.
+    HYBRID = "hybrid"
 
 
 class AiRequestOutcome(StrEnum):
@@ -77,6 +79,33 @@ class AiRequestOutcome(StrEnum):
     NO_MATCH = "no_match"
     # Claude was unavailable or declined.
     FAILED = "failed"
+
+
+class KnowledgeSourceType(StrEnum):
+    # A help center article (public once published).
+    ARTICLE = "article"
+    # An internal knowledge document (team only).
+    DOCUMENT = "document"
+
+
+class KnowledgeDocumentSource(StrEnum):
+    TEXT = "text"
+    FILE = "file"
+
+
+class TextFormat(StrEnum):
+    # Split at headings.
+    MARKDOWN = "markdown"
+    # Split into overlapping windows.
+    PLAIN = "plain"
+
+
+class SemanticSearchStatus(StrEnum):
+    # No embedding model is configured.
+    OFF = "off"
+    OK = "ok"
+    # The embedding model failed for this query.
+    UNAVAILABLE = "unavailable"
 
 
 class HelpdeskAuditAction(StrEnum):
@@ -94,6 +123,9 @@ class HelpdeskAuditAction(StrEnum):
     KB_ARTICLE_CREATE = "kb_article.create"
     KB_ARTICLE_UPDATE = "kb_article.update"
     KB_ARTICLE_DELETE = "kb_article.delete"
+    KNOWLEDGE_DOCUMENT_CREATE = "knowledge_document.create"
+    KNOWLEDGE_DOCUMENT_UPDATE = "knowledge_document.update"
+    KNOWLEDGE_DOCUMENT_DELETE = "knowledge_document.delete"
 
 
 class HelpdeskUsageMetric(StrEnum):
@@ -116,6 +148,26 @@ class HelpdeskNotificationType(StrEnum):
 
 
 class HelpdeskErrorCode(ErrorCodeEnum):
+    UNSUPPORTED_FILE_TYPE = (
+        "unsupported_file_type",
+        "Only .txt, .md, .pdf and .docx files are supported",
+    )
+    FILE_TOO_LARGE = (
+        "file_too_large",
+        "The file is too large",
+    )
+    FILE_UNREADABLE = (
+        "file_unreadable",
+        "The file could not be read",
+    )
+    DOCUMENT_EMPTY = (
+        "document_empty",
+        "The document contains no text",
+    )
+    DOCUMENT_TOO_LONG = (
+        "document_too_long",
+        "The document contains too much text",
+    )
     AI_UNAVAILABLE = (
         "ai_unavailable",
         "The AI assistant is not available right now",

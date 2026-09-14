@@ -140,7 +140,13 @@ meta:
               <p v-if="draftSources.length" class="text-xs text-muted-foreground">
                 {{
                   $t('tickets.detail.draftSources', {
-                    titles: draftSources.map((source) => source.title).join(', '),
+                    titles: draftSources
+                      .map((source) =>
+                        source.source_type === 'document'
+                          ? $t('tickets.detail.internalSource', { title: source.title })
+                          : source.title,
+                      )
+                      .join(', '),
                   })
                 }}
               </p>

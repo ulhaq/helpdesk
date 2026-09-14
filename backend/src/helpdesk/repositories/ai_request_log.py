@@ -24,6 +24,7 @@ class AiRequestLogRepository(OrganizationScopedRepository[AiRequestLog]):
         retrieval_mode: str,
         chunk_ids: list[int],
         cited_article_ids: list[int],
+        cited_document_ids: list[int],
         outcome: str,
     ) -> AiRequestLog:
         return await self.create(
@@ -33,6 +34,7 @@ class AiRequestLogRepository(OrganizationScopedRepository[AiRequestLog]):
             retrieval_mode=retrieval_mode,
             chunk_ids=chunk_ids,
             cited_article_ids=cited_article_ids,
+            cited_document_ids=cited_document_ids,
             outcome=outcome,
         )
 

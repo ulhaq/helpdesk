@@ -30,4 +30,7 @@ class AiRequestLog(ResourceModel):
     cited_article_ids: Mapped[list[int]] = mapped_column(
         JSON, nullable=False, default=list
     )
+    cited_document_ids: Mapped[list[int]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)

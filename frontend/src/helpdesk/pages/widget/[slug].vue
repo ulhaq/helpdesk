@@ -78,15 +78,17 @@ meta:
             </p>
             <p class="whitespace-pre-wrap text-sm">{{ aiAnswer.text }}</p>
             <ul class="space-y-1">
-              <li v-for="source in aiAnswer.sources" :key="source.slug">
-                <button
-                  type="button"
-                  class="text-left text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                  @click="openArticle(source.slug)"
-                >
-                  {{ source.title }}
-                </button>
-              </li>
+              <template v-for="source in aiAnswer.sources" :key="source.title">
+                <li v-if="source.slug">
+                  <button
+                    type="button"
+                    class="text-left text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                    @click="openArticle(source.slug)"
+                  >
+                    {{ source.title }}
+                  </button>
+                </li>
+              </template>
             </ul>
           </div>
           <p v-if="articleResults && !articleResults.length" class="text-sm text-muted-foreground">

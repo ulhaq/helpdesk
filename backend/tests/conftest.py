@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 # - env vars are read at import time by config/database modules
 # - JSONB→JSON patch lets SQLite run Base.metadata.create_all() in tests
 os.environ["RATE_LIMIT_ENABLED"] = "false"
+# Tests never call a real embedding model, even when backend/.env configures
+# one; tests that need an embedder override `get_embedder` with a fake.
+os.environ["HELPDESK_EMBEDDING_PROVIDER"] = ""
 _pg_dialect.JSONB = JSON  # ty: ignore[invalid-assignment]
 
 import src.platform.core.security as _security_mod  # noqa: E402

@@ -13,6 +13,12 @@ meta:
         <PlanQuota :count="total" :limit="articleLimit" variant="bar" />
       </template>
       <template #actions>
+        <Button variant="outline" size="sm" as-child>
+          <RouterLink to="/knowledge-base/internal">
+            <Lock class="w-4 h-4 mr-2" />
+            {{ $t('knowledge.open') }}
+          </RouterLink>
+        </Button>
         <Button variant="outline" size="sm" @click="showCategories = true">
           <FolderTree class="w-4 h-4 mr-2" />
           {{ $t('kb.manageCategories') }}
@@ -97,7 +103,7 @@ meta:
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRouter } from 'vue-router'
-import { BookOpen, FolderTree, Plus } from 'lucide-vue-next'
+import { BookOpen, FolderTree, Lock, Plus } from 'lucide-vue-next'
 import { Button } from '@/platform/components/ui/button'
 import { Input } from '@/platform/components/ui/input'
 import { TableCell } from '@/platform/components/ui/table'

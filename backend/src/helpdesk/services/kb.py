@@ -9,7 +9,7 @@ from src.helpdesk.enums import (
     HelpdeskErrorCode,
     HelpdeskUsageMetric,
 )
-from src.helpdesk.kb_chunks import split_article
+from src.helpdesk.kb_chunks import split_markdown
 from src.helpdesk.markdown import render_markdown
 from src.helpdesk.models.kb import KbArticle, KbCategory
 from src.helpdesk.repositories.manager import HelpdeskRepositoryManager
@@ -59,7 +59,7 @@ class KbService(BaseService):
         self.categories.set_organization_scope(organization_id)
         self.articles = repos.kb_article
         self.articles.set_organization_scope(organization_id)
-        self.chunks = repos.kb_article_chunk
+        self.chunks = repos.knowledge_chunk
         self.chunks.set_organization_scope(organization_id)
         self.current_user = current_user
 
@@ -177,6 +177,9 @@ class KbService(BaseService):
     async def delete_article(self, identifier: int) -> None:
         article = await self.articles.get_one(identifier)
         await self.articles.delete(article)
+        await self.chunks.replace(
+            organization_id=article.organization_id, article_id=article.id, chunks=[]
+        )
         await self._audit_article(HelpdeskAuditAction.KB_ARTICLE_DELETE, article)
 
     def preview(self, schema_in: MarkdownPreviewIn) -> MarkdownPreviewOut:
@@ -187,8 +190,10 @@ class KbService(BaseService):
     async def _index_article(self, article: KbArticle) -> None:
         """Rebuild the sections the AI assistant retrieves. Drafts are indexed
         too; search only returns sections of published articles."""
-        await self.chunks.replace_for_article(
-            article, split_article(article.title, article.body)
+        await self.chunks.replace(
+            organization_id=article.organization_id,
+            article_id=article.id,
+            chunks=split_markdown(article.title, article.body),
         )
 
     async def _unique_article_slug(self, title: str) -> str:

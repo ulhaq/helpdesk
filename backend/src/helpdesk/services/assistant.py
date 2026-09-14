@@ -14,17 +14,19 @@ from src.helpdesk.assistant import (
     require_client,
     untrusted,
 )
+from src.helpdesk.embeddings import Embedder, get_embedder
 from src.helpdesk.enums import (
     AiFeature,
     AiRequestOutcome,
     HelpdeskUsageMetric,
+    KnowledgeSourceType,
     MessageAuthorType,
 )
 from src.helpdesk.models.ticket import Ticket
 from src.helpdesk.models.ticket_message import TicketMessage
 from src.helpdesk.repositories.ai_request_log import AiRequestLogRepository
 from src.helpdesk.repositories.manager import HelpdeskRepositoryManager
-from src.helpdesk.retrieval import KbRetriever, Retrieval
+from src.helpdesk.retrieval import KnowledgeRetriever, Retrieval
 from src.helpdesk.schemas.assistant import (
     AiSourceOut,
     ReplySuggestionOut,
@@ -46,7 +48,12 @@ log = logging.getLogger(__name__)
 
 def _sources(generated: GeneratedText) -> list[AiSourceOut]:
     return [
-        AiSourceOut(title=s.title, slug=s.slug, cited_text=s.cited_text)
+        AiSourceOut(
+            source_type=s.source_type,
+            title=s.title,
+            slug=s.slug,
+            cited_text=s.cited_text,
+        )
         for s in generated.sources
     ]
 
@@ -55,6 +62,14 @@ def _outcome(generated: GeneratedText) -> AiRequestOutcome:
     if generated.text and generated.sources:
         return AiRequestOutcome.GROUNDED
     return AiRequestOutcome.UNGROUNDED
+
+
+def _cited_ids(
+    generated: GeneratedText | None, source_type: KnowledgeSourceType
+) -> list[int]:
+    if generated is None:
+        return []
+    return [s.source_id for s in generated.sources if s.source_type == source_type]
 
 
 async def _record(
@@ -73,9 +88,8 @@ async def _record(
         query=query,
         retrieval_mode=retrieval.mode,
         chunk_ids=retrieval.chunk_ids,
-        cited_article_ids=[s.article_id for s in generated.sources]
-        if generated
-        else [],
+        cited_article_ids=_cited_ids(generated, KnowledgeSourceType.ARTICLE),
+        cited_document_ids=_cited_ids(generated, KnowledgeSourceType.DOCUMENT),
         outcome=outcome,
     )
 
@@ -94,14 +108,15 @@ def ticket_search_query(ticket: Ticket, messages: Sequence[TicketMessage]) -> st
 
 
 class ReplySuggestionService(BaseService):
-    """Drafts an agent's reply to a ticket from its conversation and the
-    organization's help center."""
+    """Drafts an agent's reply to a ticket from its conversation, the help
+    center and the team's internal knowledge."""
 
     def __init__(
         self,
         repos: Annotated[HelpdeskRepositoryManager, Depends()],
         current_user: Annotated[Auth, Depends(authenticate)],
         client: Annotated[AsyncAnthropic | None, Depends(get_ai_client)],
+        embedder: Annotated[Embedder | None, Depends(get_embedder)],
     ) -> None:
         super().__init__(repos)
         organization_id = current_user.organization_id
@@ -109,7 +124,7 @@ class ReplySuggestionService(BaseService):
         self.tickets.set_organization_scope(organization_id)
         self.messages = repos.ticket_message
         self.messages.set_organization_scope(organization_id)
-        self.retriever = KbRetriever(repos)
+        self.retriever = KnowledgeRetriever(repos, embedder)
         self.logs = repos.ai_request_log
         self.current_user = current_user
         self.client = client
@@ -135,8 +150,12 @@ class ReplySuggestionService(BaseService):
             "Draft the agent's reply to the customer's most recent message."
         )
         query = ticket_search_query(ticket, messages)
-        retrieval = await self.retriever.retrieve(organization_id, query)
-        # Without matching articles Claude still drafts from the conversation
+        # Agents may see internal knowledge; the draft is reviewed before
+        # anything reaches the customer.
+        retrieval = await self.retriever.retrieve(
+            organization_id, query, include_internal=True
+        )
+        # Without matching sources Claude still drafts from the conversation
         # and names what the agent should confirm.
         generated = await generate_cited_text(
             client, system=REPLY_SYSTEM_PROMPT, retrieval=retrieval, prompt=prompt
@@ -171,16 +190,18 @@ class WidgetAnswerService(BaseService):
     Customers never see assistant errors or billing limits: whenever an
     answer can't be produced and grounded in an article, the result is simply
     "not answered" and the widget falls back to article search and a human.
+    Internal knowledge is never used here.
     """
 
     def __init__(
         self,
         repos: Annotated[HelpdeskRepositoryManager, Depends()],
         client: Annotated[AsyncAnthropic | None, Depends(get_ai_client)],
+        embedder: Annotated[Embedder | None, Depends(get_embedder)],
     ) -> None:
         super().__init__(repos)
         self.sites = repos.support_site
-        self.retriever = KbRetriever(repos)
+        self.retriever = KnowledgeRetriever(repos, embedder)
         self.logs = repos.ai_request_log
         self.client = client
 
@@ -201,7 +222,9 @@ class WidgetAnswerService(BaseService):
             return not_answered
 
         question = schema_in.question
-        retrieval = await self.retriever.retrieve(organization_id, question)
+        retrieval = await self.retriever.retrieve(
+            organization_id, question, include_internal=False
+        )
 
         async def record(
             outcome: AiRequestOutcome, generated: GeneratedText | None = None
@@ -218,7 +241,7 @@ class WidgetAnswerService(BaseService):
 
         if not retrieval.passages:
             # Nothing to ground an answer in: don't spend a request on it.
-            await record(outcome=AiRequestOutcome.NO_MATCH)
+            await record(AiRequestOutcome.NO_MATCH)
             return not_answered
 
         try:
@@ -230,14 +253,14 @@ class WidgetAnswerService(BaseService):
             )
         except ClientException as exc:
             log.info("Widget answer unavailable. [%s, error=%s]", slug, exc.detail)
-            await record(outcome=AiRequestOutcome.FAILED)
+            await record(AiRequestOutcome.FAILED)
             return not_answered
 
         await track_usage(
             self.repos, organization_id, HelpdeskUsageMetric.AI_REQUESTS_PER_MONTH
         )
         outcome = _outcome(generated)
-        await record(outcome=outcome, generated=generated)
+        await record(outcome, generated)
         if outcome != AiRequestOutcome.GROUNDED:
             return not_answered
         return WidgetAnswerOut(
