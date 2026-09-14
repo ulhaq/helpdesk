@@ -56,3 +56,32 @@ class KbArticle(ResourceModel):
     )
 
     category: Mapped[KbCategory | None] = relationship(lazy="selectin")
+
+
+class KbArticleChunk(ResourceModel):
+    """A section of an article - the unit the AI assistant retrieves.
+
+    Rebuilt whenever the article's title or body changes (split by
+    `src.helpdesk.kb_chunks`). On PostgreSQL a GIN expression index
+    (`ix_kb_article_chunk_search`, see the kb_retrieval migration) serves
+    full-text search over the heading and content.
+    """
+
+    __tablename__ = "kb_article_chunk"
+
+    organization_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    article_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("kb_article.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    # "Article title > Section > Subsection"
+    heading: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)

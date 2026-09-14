@@ -21,7 +21,7 @@ This file provides comprehensive guidance for working with this FastAPI multi-te
 | Path | Purpose |
 |------|---------|
 | `src/helpdesk/enums.py` | `HelpdeskPermission`, `TicketStatus`/`TicketPriority`/`TicketChannel`, `ArticleStatus`, audit actions, notification types, usage metrics (`tickets_per_month`, `kb_articles`), error codes, permission descriptions |
-| `src/helpdesk/models/` | `Contact`, `Ticket`, `TicketMessage` (org-scoped, soft-deletable), `KbCategory`/`KbArticle`, `SupportSite` (one per org: public slug, branding, widget/help center switches) |
+| `src/helpdesk/models/` | `Contact`, `Ticket`, `TicketMessage` (org-scoped, soft-deletable), `KbCategory`/`KbArticle`/`KbArticleChunk` (article sections for AI retrieval), `AiRequestLog`, `SupportSite` (one per org: public slug, branding, widget/help center switches) |
 | `src/helpdesk/repositories/` | Org-scoped repositories + `SupportSiteRepository` (looked up by slug), `AgentRepository` (members holding a permission), `HelpdeskRepositoryManager` |
 | `src/helpdesk/services/ticket.py`, `contact.py` | Agent inbox: ticket numbering, status timestamps, assignment + notifications, replies/internal notes, reply emails with a conversation link |
 | `src/helpdesk/services/widget.py` | Public widget API: submit tickets, list/read/reply with contact tokens, access-link emails |
@@ -29,10 +29,11 @@ This file provides comprehensive guidance for working with this FastAPI multi-te
 | `src/helpdesk/services/reports.py` | Report summary computed from one bounded, scoped query |
 | `src/helpdesk/contact_token.py` | Signed contact tokens (ticket-scoped when unverified, contact-scoped when emailed) |
 | `src/helpdesk/markdown.py` | Article rendering with raw HTML disabled |
-| `src/helpdesk/assistant.py`, `services/assistant.py` | Claude integration: `get_ai_client` dependency (None without `ANTHROPIC_API_KEY`; tests override it with a fake), cited generation over published articles, reply drafts and widget answers (`ai_requests_per_month` limit) |
+| `src/helpdesk/assistant.py`, `services/assistant.py` | Claude integration: `get_ai_client` dependency (None without `ANTHROPIC_API_KEY`; tests override it with a fake), cited generation over retrieved passages, reply drafts and widget answers (`ai_requests_per_month` limit), one `ai_request_log` row per request |
+| `src/helpdesk/retrieval.py`, `kb_chunks.py` | RAG context: `KbRetriever` sends a small help center whole (below `ai_full_context_max_chars`, prompt-cached) or the best-matching sections within a budget. Articles are split at Markdown headings on every save (`KbService._index_article`). `KbArticleChunkRepository.search` uses Postgres full-text search (GIN expression index that must match `_SEARCH_VECTOR`) and a substring fallback on SQLite, so the tests don't exercise the Postgres query |
 | `src/helpdesk/hooks.py` | `MEMBER_REMOVED` → unassign the member's tickets |
-| `src/helpdesk/worker.py` | `run_auto_close_loop` - closes tickets left resolved, recording `worker_run` rows |
-| `src/helpdesk/config.py` | `HelpdeskSettings` (`env_prefix="helpdesk_"`: contact token lifetime, auto-close) |
+| `src/helpdesk/worker.py` | `run_auto_close_loop` - closes tickets left resolved, recording `worker_run` rows; `run_ai_request_log_retention_loop` - daily purge of `ai_request_log` rows (they hold customer text) |
+| `src/helpdesk/config.py` | `HelpdeskSettings` (`env_prefix="helpdesk_"`: contact token lifetime, auto-close, AI model/effort, retrieval budget, AI log retention) |
 | `src/helpdesk/templates/emails/` | MJML sources (`mjml/<locale>/`) + compiled HTML for `ticket-reply`, `ticket-received`, `ticket-access` |
 
 ---

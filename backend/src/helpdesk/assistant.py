@@ -1,17 +1,19 @@
 """Claude integration for the helpdesk: reply drafts and widget answers.
 
-Both features ground the model in the organization's published help center
-articles, sent as citation-enabled plain-text documents. Citations tell us
-which articles an answer relies on - and an answer that cites nothing is
-treated as "not answered" rather than shown to a customer.
+Both features ground the model in the organization's published help center,
+sent as citation-enabled plain-text documents - whole articles for a small
+help center, or the best-matching sections for a large one (see
+`src.helpdesk.retrieval`). Citations tell us which articles an answer relies
+on - and an answer that cites nothing is treated as "not answered" rather
+than shown to a customer.
 
 Request shape, in prefix order for prompt caching: a frozen system prompt,
-then the articles (cache breakpoint on the last one), then the per-request,
-untrusted content (ticket conversation or customer question).
+then the knowledge base passages (cache breakpoint on the last one when they
+are the whole help center), then the per-request, untrusted content (ticket
+conversation or customer question).
 """
 
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -24,7 +26,7 @@ from fastapi import status
 
 from src.helpdesk.config import settings
 from src.helpdesk.enums import HelpdeskErrorCode
-from src.helpdesk.models.kb import KbArticle
+from src.helpdesk.retrieval import Retrieval
 from src.platform.core.exceptions import ClientException
 
 log = logging.getLogger(__name__)
@@ -86,6 +88,7 @@ def get_ai_client() -> anthropic.AsyncAnthropic | None:
 
 @dataclass(frozen=True)
 class CitedArticle:
+    article_id: int
     title: str
     slug: str
     cited_text: str
@@ -102,46 +105,40 @@ def untrusted(text: str, tag: str) -> str:
     return f"<{tag}>\n{text.replace(f'</{tag}>', '')}\n</{tag}>"
 
 
-def _article_documents(
-    articles: Sequence[KbArticle],
-) -> tuple[list[BetaRequestDocumentBlockParam], list[KbArticle]]:
-    documents: list[BetaRequestDocumentBlockParam] = []
-    included: list[KbArticle] = []
-    total_chars = 0
-    for article in articles:
-        text = f"{article.title}\n\n{article.body}"
-        if total_chars + len(text) > settings.ai_max_article_chars:
-            break
-        total_chars += len(text)
-        included.append(article)
-        documents.append(
-            {
-                "type": "document",
-                "source": {"type": "text", "media_type": "text/plain", "data": text},
-                "title": article.title,
-                "citations": {"enabled": True},
-            }
-        )
-    if documents:
-        # The articles are the large part every request for this organization
-        # shares; the varying ticket or question comes after this breakpoint.
+def _documents(retrieval: Retrieval) -> list[BetaRequestDocumentBlockParam]:
+    documents: list[BetaRequestDocumentBlockParam] = [
+        {
+            "type": "document",
+            "source": {
+                "type": "text",
+                "media_type": "text/plain",
+                "data": f"{passage.heading}\n\n{passage.text}",
+            },
+            "title": passage.title,
+            "citations": {"enabled": True},
+        }
+        for passage in retrieval.passages
+    ]
+    if documents and retrieval.cacheable:
+        # The whole help center is the large part every request for this
+        # organization shares; the varying ticket or question comes after
+        # this breakpoint.
         documents[-1]["cache_control"] = {"type": "ephemeral"}
-    return documents, included
+    return documents
 
 
 async def generate_cited_text(
     client: anthropic.AsyncAnthropic,
     *,
     system: str,
-    articles: Sequence[KbArticle],
+    retrieval: Retrieval,
     prompt: str,
 ) -> GeneratedText:
-    """One Claude request over the articles; returns the text and the articles
-    it cited. Raises AI_UNAVAILABLE on API failures and AI_DECLINED when the
-    model (and its fallback) refused."""
-    documents, included = _article_documents(articles)
+    """One Claude request over the retrieved passages; returns the text and
+    the articles it cited. Raises AI_UNAVAILABLE on API failures and
+    AI_DECLINED when the model (and its fallback) refused."""
     content: list[BetaContentBlockParam] = [
-        *documents,
+        *_documents(retrieval),
         {"type": "text", "text": prompt},
     ]
     try:
@@ -176,6 +173,7 @@ async def generate_cited_text(
             error_code=HelpdeskErrorCode.AI_DECLINED,
         )
 
+    passages = retrieval.passages
     parts: list[str] = []
     sources: list[CitedArticle] = []
     cited_ids: set[int] = set()
@@ -186,16 +184,18 @@ async def generate_cited_text(
         for citation in block.citations or []:
             if citation.type != "char_location":
                 continue
-            if not 0 <= citation.document_index < len(included):
+            if not 0 <= citation.document_index < len(passages):
                 continue
-            article = included[citation.document_index]
-            if article.id in cited_ids:
+            passage = passages[citation.document_index]
+            # Several sections of one article are still one source.
+            if passage.article_id in cited_ids:
                 continue
-            cited_ids.add(article.id)
+            cited_ids.add(passage.article_id)
             sources.append(
                 CitedArticle(
-                    title=article.title,
-                    slug=article.slug,
+                    article_id=passage.article_id,
+                    title=passage.title,
+                    slug=passage.slug,
                     cited_text=citation.cited_text,
                 )
             )

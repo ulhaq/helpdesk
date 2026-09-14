@@ -9,6 +9,7 @@ from src.helpdesk.enums import (
     HelpdeskErrorCode,
     HelpdeskUsageMetric,
 )
+from src.helpdesk.kb_chunks import split_article
 from src.helpdesk.markdown import render_markdown
 from src.helpdesk.models.kb import KbArticle, KbCategory
 from src.helpdesk.repositories.manager import HelpdeskRepositoryManager
@@ -58,6 +59,8 @@ class KbService(BaseService):
         self.categories.set_organization_scope(organization_id)
         self.articles = repos.kb_article
         self.articles.set_organization_scope(organization_id)
+        self.chunks = repos.kb_article_chunk
+        self.chunks.set_organization_scope(organization_id)
         self.current_user = current_user
 
     # --- categories
@@ -144,6 +147,7 @@ class KbService(BaseService):
                 else None
             ),
         )
+        await self._index_article(article)
         await self.repos.db.refresh(article, ["category"])
         await self._audit_article(HelpdeskAuditAction.KB_ARTICLE_CREATE, article)
         return KbArticleOut.model_validate(article)
@@ -164,6 +168,8 @@ class KbService(BaseService):
             changes["published_at"] = datetime.now(UTC)
 
         article = await self.articles.update(article, **changes)
+        if "title" in changes or "body" in changes:
+            await self._index_article(article)
         await self.repos.db.refresh(article, ["category"])
         await self._audit_article(HelpdeskAuditAction.KB_ARTICLE_UPDATE, article)
         return KbArticleOut.model_validate(article)
@@ -177,6 +183,13 @@ class KbService(BaseService):
         return MarkdownPreviewOut(html=render_markdown(schema_in.body))
 
     # --- helpers
+
+    async def _index_article(self, article: KbArticle) -> None:
+        """Rebuild the sections the AI assistant retrieves. Drafts are indexed
+        too; search only returns sections of published articles."""
+        await self.chunks.replace_for_article(
+            article, split_article(article.title, article.body)
+        )
 
     async def _unique_article_slug(self, title: str) -> str:
         base = slugify(title, max_length=200, fallback="article")

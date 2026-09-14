@@ -12,8 +12,13 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.helpdesk.repositories.agent import AgentRepository
+from src.helpdesk.repositories.ai_request_log import AiRequestLogRepository
 from src.helpdesk.repositories.contact import ContactRepository
-from src.helpdesk.repositories.kb import KbArticleRepository, KbCategoryRepository
+from src.helpdesk.repositories.kb import (
+    KbArticleChunkRepository,
+    KbArticleRepository,
+    KbCategoryRepository,
+)
 from src.helpdesk.repositories.support_site import SupportSiteRepository
 from src.helpdesk.repositories.ticket import TicketRepository
 from src.helpdesk.repositories.ticket_message import TicketMessageRepository
@@ -31,6 +36,8 @@ class HelpdeskRepositoryManager(RepositoryManager):
         self._agent: AgentRepository | None = None
         self._kb_category: KbCategoryRepository | None = None
         self._kb_article: KbArticleRepository | None = None
+        self._kb_article_chunk: KbArticleChunkRepository | None = None
+        self._ai_request_log: AiRequestLogRepository | None = None
 
     @property
     def contact(self) -> ContactRepository:
@@ -73,3 +80,15 @@ class HelpdeskRepositoryManager(RepositoryManager):
         if self._kb_article is None:
             self._kb_article = KbArticleRepository(self.db)
         return self._kb_article
+
+    @property
+    def kb_article_chunk(self) -> KbArticleChunkRepository:
+        if self._kb_article_chunk is None:
+            self._kb_article_chunk = KbArticleChunkRepository(self.db)
+        return self._kb_article_chunk
+
+    @property
+    def ai_request_log(self) -> AiRequestLogRepository:
+        if self._ai_request_log is None:
+            self._ai_request_log = AiRequestLogRepository(self.db)
+        return self._ai_request_log

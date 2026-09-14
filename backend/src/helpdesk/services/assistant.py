@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Sequence
 from typing import Annotated
 
 from anthropic import AsyncAnthropic
@@ -13,9 +14,17 @@ from src.helpdesk.assistant import (
     require_client,
     untrusted,
 )
-from src.helpdesk.config import settings
-from src.helpdesk.enums import HelpdeskUsageMetric, MessageAuthorType
+from src.helpdesk.enums import (
+    AiFeature,
+    AiRequestOutcome,
+    HelpdeskUsageMetric,
+    MessageAuthorType,
+)
+from src.helpdesk.models.ticket import Ticket
+from src.helpdesk.models.ticket_message import TicketMessage
+from src.helpdesk.repositories.ai_request_log import AiRequestLogRepository
 from src.helpdesk.repositories.manager import HelpdeskRepositoryManager
+from src.helpdesk.retrieval import KbRetriever, Retrieval
 from src.helpdesk.schemas.assistant import (
     AiSourceOut,
     ReplySuggestionOut,
@@ -42,6 +51,48 @@ def _sources(generated: GeneratedText) -> list[AiSourceOut]:
     ]
 
 
+def _outcome(generated: GeneratedText) -> AiRequestOutcome:
+    if generated.text and generated.sources:
+        return AiRequestOutcome.GROUNDED
+    return AiRequestOutcome.UNGROUNDED
+
+
+async def _record(
+    logs: AiRequestLogRepository,
+    *,
+    organization_id: int,
+    feature: AiFeature,
+    query: str,
+    retrieval: Retrieval,
+    outcome: AiRequestOutcome,
+    generated: GeneratedText | None = None,
+) -> None:
+    await logs.record(
+        organization_id=organization_id,
+        feature=feature,
+        query=query,
+        retrieval_mode=retrieval.mode,
+        chunk_ids=retrieval.chunk_ids,
+        cited_article_ids=[s.article_id for s in generated.sources]
+        if generated
+        else [],
+        outcome=outcome,
+    )
+
+
+def ticket_search_query(ticket: Ticket, messages: Sequence[TicketMessage]) -> str:
+    """What to look up in the knowledge base for a ticket: the subject plus
+    the customer's latest message (on a ticket an agent opened for the
+    customer, the first public message). The whole thread would mostly add
+    noise to the search."""
+    public = [m for m in messages if not m.is_internal]
+    latest = next(
+        (m for m in reversed(public) if m.author_type == MessageAuthorType.CONTACT),
+        public[0] if public else None,
+    )
+    return f"{ticket.subject}\n{latest.body}" if latest else ticket.subject
+
+
 class ReplySuggestionService(BaseService):
     """Drafts an agent's reply to a ticket from its conversation and the
     organization's help center."""
@@ -58,8 +109,8 @@ class ReplySuggestionService(BaseService):
         self.tickets.set_organization_scope(organization_id)
         self.messages = repos.ticket_message
         self.messages.set_organization_scope(organization_id)
-        self.articles = repos.kb_article
-        self.articles.set_organization_scope(organization_id)
+        self.retriever = KbRetriever(repos)
+        self.logs = repos.ai_request_log
         self.current_user = current_user
         self.client = client
 
@@ -71,9 +122,9 @@ class ReplySuggestionService(BaseService):
             self.repos, organization_id, HelpdeskUsageMetric.AI_REQUESTS_PER_MONTH
         )
 
+        messages = await self.messages.list_for_ticket(ticket.id)
         conversation = "\n\n".join(
-            f"[{self._label(message)}]\n{message.body}"
-            for message in await self.messages.list_for_ticket(ticket.id)
+            f"[{self._label(message)}]\n{message.body}" for message in messages
         )
         organization = await self.repos.organization.get(organization_id)
         prompt = (
@@ -83,25 +134,33 @@ class ReplySuggestionService(BaseService):
             f"{untrusted(conversation, 'conversation')}\n\n"
             "Draft the agent's reply to the customer's most recent message."
         )
+        query = ticket_search_query(ticket, messages)
+        retrieval = await self.retriever.retrieve(organization_id, query)
+        # Without matching articles Claude still drafts from the conversation
+        # and names what the agent should confirm.
         generated = await generate_cited_text(
-            client,
-            system=REPLY_SYSTEM_PROMPT,
-            articles=await self.articles.list_published(
-                order="title", limit=settings.ai_max_articles
-            ),
-            prompt=prompt,
+            client, system=REPLY_SYSTEM_PROMPT, retrieval=retrieval, prompt=prompt
         )
         await track_usage(
             self.repos, organization_id, HelpdeskUsageMetric.AI_REQUESTS_PER_MONTH
         )
+        await _record(
+            self.logs,
+            organization_id=organization_id,
+            feature=AiFeature.REPLY_SUGGESTION,
+            query=query,
+            retrieval=retrieval,
+            outcome=_outcome(generated),
+            generated=generated,
+        )
         return ReplySuggestionOut(text=generated.text, sources=_sources(generated))
 
     @staticmethod
-    def _label(message: object) -> str:
-        author = getattr(message, "author_name", None) or "unknown"
-        if getattr(message, "is_internal", False):
+    def _label(message: TicketMessage) -> str:
+        author = message.author_name or "unknown"
+        if message.is_internal:
             return f"internal note by {author} - background only"
-        if getattr(message, "author_type", None) == MessageAuthorType.CONTACT:
+        if message.author_type == MessageAuthorType.CONTACT:
             return f"customer {author}"
         return f"agent {author}"
 
@@ -121,7 +180,8 @@ class WidgetAnswerService(BaseService):
     ) -> None:
         super().__init__(repos)
         self.sites = repos.support_site
-        self.articles = repos.kb_article
+        self.retriever = KbRetriever(repos)
+        self.logs = repos.ai_request_log
         self.client = client
 
     async def answer(self, slug: str, schema_in: WidgetQuestionIn) -> WidgetAnswerOut:
@@ -133,33 +193,52 @@ class WidgetAnswerService(BaseService):
             return not_answered
 
         organization_id = site.organization_id
-        self.articles.set_organization_scope(organization_id)
-        articles = await self.articles.list_published(
-            order="title", limit=settings.ai_max_articles
-        )
-        if not articles:
-            return not_answered
-
         try:
             await require_within_limit(
                 self.repos, organization_id, HelpdeskUsageMetric.AI_REQUESTS_PER_MONTH
             )
+        except LimitExceededException:
+            return not_answered
+
+        question = schema_in.question
+        retrieval = await self.retriever.retrieve(organization_id, question)
+
+        async def record(
+            outcome: AiRequestOutcome, generated: GeneratedText | None = None
+        ) -> None:
+            await _record(
+                self.logs,
+                organization_id=organization_id,
+                feature=AiFeature.WIDGET_ANSWER,
+                query=question,
+                retrieval=retrieval,
+                outcome=outcome,
+                generated=generated,
+            )
+
+        if not retrieval.passages:
+            # Nothing to ground an answer in: don't spend a request on it.
+            await record(outcome=AiRequestOutcome.NO_MATCH)
+            return not_answered
+
+        try:
             generated = await generate_cited_text(
                 self.client,
                 system=ANSWER_SYSTEM_PROMPT,
-                articles=articles,
-                prompt=untrusted(schema_in.question, "question"),
+                retrieval=retrieval,
+                prompt=untrusted(question, "question"),
             )
-        except LimitExceededException:
-            return not_answered
         except ClientException as exc:
             log.info("Widget answer unavailable. [%s, error=%s]", slug, exc.detail)
+            await record(outcome=AiRequestOutcome.FAILED)
             return not_answered
 
         await track_usage(
             self.repos, organization_id, HelpdeskUsageMetric.AI_REQUESTS_PER_MONTH
         )
-        if not generated.text or not generated.sources:
+        outcome = _outcome(generated)
+        await record(outcome=outcome, generated=generated)
+        if outcome != AiRequestOutcome.GROUNDED:
             return not_answered
         return WidgetAnswerOut(
             answered=True, text=generated.text, sources=_sources(generated)

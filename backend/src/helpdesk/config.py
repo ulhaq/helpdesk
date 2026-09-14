@@ -31,9 +31,15 @@ class HelpdeskSettings(EnvSettings):
     )
     ai_model: str = "claude-haiku-4-5"
     ai_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
-    # Bounds on the help center context sent with each request.
-    ai_max_articles: int = 200
-    ai_max_article_chars: int = 400_000
+    # Knowledge base context (see src/helpdesk/retrieval.py): help centers up
+    # to this size are sent whole and prompt-cached; larger ones get only the
+    # best-matching article sections, within the passage and size budget.
+    ai_full_context_max_chars: int = 120_000
+    ai_retrieval_max_passages: int = 8
+    ai_retrieval_max_chars: int = 32_000
+    # AI request logs (query, retrieved sections, outcome) contain customer
+    # text; the worker deletes them after this many days (0 keeps them).
+    ai_request_log_retention_days: int = 90
 
 
 settings = HelpdeskSettings()

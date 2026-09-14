@@ -11,8 +11,8 @@ Product-specific code lives in one package per side - `backend/src/helpdesk/` an
 - **Support widget** - `frontend/public/widget.js` embeds `/widget/<slug>` in an iframe on any website; backed by the public `/v1/widget/<slug>` API and signed contact tokens.
 - **Knowledge base & help center** - Markdown articles (rendered server-side with raw HTML disabled) managed at `/knowledge-base`, published at `/help/<slug>` and searchable from the widget.
 - **Reports** - `/reports` (volume, backlog, response/resolution times, workload).
-- **AI assistant** - Claude (`backend/src/helpdesk/assistant.py`) drafts agent replies (`POST /v1/tickets/{id}/reply-suggestion`) and answers widget questions (`POST /v1/widget/<slug>/answers`) from published articles with citations; off without `ANTHROPIC_API_KEY`, metered by `ai_requests_per_month`.
-- **Worker loop** - auto-closes tickets left resolved (`HELPDESK_AUTO_CLOSE_RESOLVED_AFTER_DAYS`).
+- **AI assistant** - Claude (`backend/src/helpdesk/assistant.py`) drafts agent replies (`POST /v1/tickets/{id}/reply-suggestion`) and answers widget questions (`POST /v1/widget/<slug>/answers`) from published articles with citations; off without `ANTHROPIC_API_KEY`, metered by `ai_requests_per_month`. Context comes from `backend/src/helpdesk/retrieval.py`: small help centers are sent whole (prompt-cached), larger ones only the best-matching article sections (`kb_article_chunk`, Postgres full-text search). Each request is logged to `ai_request_log` to spot retrieval misses.
+- **Worker loops** - auto-closes tickets left resolved (`HELPDESK_AUTO_CLOSE_RESOLVED_AFTER_DAYS`) and deletes old AI request logs (`HELPDESK_AI_REQUEST_LOG_RETENTION_DAYS`).
 
 Product identity (name, domains, support email, legal entity) is in `frontend/src/brand.ts` and `APP_NAME` / `EMAIL_FROM_*` in `backend/.env`. Plan copy lives in the product locales (`planComparisonRows` / `planDescriptions`); product plan limits (`tickets_per_month`, `kb_articles`) are seeded by the helpdesk migration.
 

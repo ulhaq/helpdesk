@@ -57,6 +57,28 @@ class ArticleStatus(StrEnum):
     PUBLISHED = "published"
 
 
+class AiFeature(StrEnum):
+    REPLY_SUGGESTION = "reply_suggestion"
+    WIDGET_ANSWER = "widget_answer"
+
+
+class AiRetrievalMode(StrEnum):
+    # The whole (small) published help center was sent.
+    FULL = "full"
+    # Only the best-matching article sections were sent.
+    SEARCH = "search"
+
+
+class AiRequestOutcome(StrEnum):
+    # The response cited at least one article.
+    GROUNDED = "grounded"
+    UNGROUNDED = "ungrounded"
+    # Nothing in the knowledge base matched, so Claude wasn't called.
+    NO_MATCH = "no_match"
+    # Claude was unavailable or declined.
+    FAILED = "failed"
+
+
 class HelpdeskAuditAction(StrEnum):
     TICKET_CREATE = "ticket.create"
     TICKET_UPDATE = "ticket.update"
