@@ -15,13 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 # - env vars are read at import time by config/database modules
 # - JSONB→JSON patch lets SQLite run Base.metadata.create_all() in tests
 os.environ["RATE_LIMIT_ENABLED"] = "false"
-# Tests never call a real embedding model, even when backend/.env configures
-# one; tests that need an embedder override `get_embedder` with a fake.
-os.environ["HELPDESK_EMBEDDING_PROVIDER"] = ""
 _pg_dialect.JSONB = JSON  # ty: ignore[invalid-assignment]
 
 import src.platform.core.security as _security_mod  # noqa: E402
 from src.bootstrap import ALL_PERMISSIONS, PERMISSION_DESCRIPTIONS  # noqa: E402
+from src.helpdesk.config import HelpdeskSettings  # noqa: E402
+from src.helpdesk.config import settings as helpdesk_settings  # noqa: E402
 from src.init_db import INIT_AUTH_DATA  # noqa: E402
 from src.main import app  # noqa: E402
 from src.platform.billing import (  # noqa: E402
@@ -80,6 +79,18 @@ def allow_multiple_organizations() -> Generator[None]:
     settings.allow_multiple_organizations = True
     yield
     settings.allow_multiple_organizations = original
+
+
+@pytest.fixture(autouse=True)
+def default_helpdesk_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Product settings at their code defaults, whatever backend/.env sets.
+
+    Tests must not depend on a developer's local configuration - e.g. a real
+    embedding model or a lowered AI context limit. Tests that need another
+    value monkeypatch it (or override `get_embedder` with a fake).
+    """
+    for name, field in HelpdeskSettings.model_fields.items():
+        monkeypatch.setattr(helpdesk_settings, name, field.default)
 
 
 @pytest.fixture(scope="session", autouse=True)

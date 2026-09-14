@@ -5,8 +5,11 @@ from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 
+import anthropic
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from src.helpdesk.assistant import (
     ANSWER_SYSTEM_PROMPT,
@@ -15,6 +18,7 @@ from src.helpdesk.assistant import (
 )
 from src.helpdesk.config import settings
 from src.helpdesk.enums import HelpdeskUsageMetric
+from src.helpdesk.models.ai_request_log import AiRequestLog
 from src.main import app
 from src.platform.models.billing import PlanSetting
 from tests.conftest import TestSessionLocal
@@ -40,10 +44,14 @@ class FakeClaude:
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
         self.response = message(text("A drafted answer."))
+        # When set, requests fail with this API error instead.
+        self.error: Exception | None = None
         self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
 
     def _stream(self, **kwargs: Any) -> _FakeStream:
         self.requests.append(kwargs)
+        if self.error is not None:
+            raise self.error
         return _FakeStream(self.response)
 
 
@@ -209,6 +217,58 @@ def test_declined_suggestion(
     response = admin_authenticated.post(f"/v1/tickets/{ticket['id']}/reply-suggestion")
     assert response.status_code == 422
     assert response.json()["error_code"] == "ai_declined"
+
+
+def test_no_suggestions_for_closed_tickets(
+    admin_authenticated: TestClient, claude: FakeClaude
+) -> None:
+    ticket = _ticket(admin_authenticated)
+    admin_authenticated.patch(f"/v1/tickets/{ticket['id']}", json={"status": "closed"})
+
+    response = admin_authenticated.post(f"/v1/tickets/{ticket['id']}/reply-suggestion")
+
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "ticket_closed"
+    assert claude.requests == []
+
+
+async def test_failed_suggestions_are_logged_and_use_no_quota(
+    admin_authenticated: TestClient, claude: FakeClaude
+) -> None:
+    await _limit(1)
+    ticket = _ticket(admin_authenticated)
+    url = f"/v1/tickets/{ticket['id']}/reply-suggestion"
+
+    claude.error = anthropic.APIConnectionError(
+        request=httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    )
+    response = admin_authenticated.post(url)
+    assert (response.status_code, response.json()["error_code"]) == (
+        503,
+        "ai_unavailable",
+    )
+
+    claude.error = None
+    claude.response = message(stop_reason="refusal")
+    assert admin_authenticated.post(url).json()["error_code"] == "ai_declined"
+
+    # An empty draft is declined rather than returned.
+    claude.response = message(text("  "))
+    response = admin_authenticated.post(url)
+    assert (response.status_code, response.json()["error_code"]) == (
+        422,
+        "ai_declined",
+    )
+
+    # None of the failures used the plan's single request.
+    claude.response = message(text("A drafted answer."))
+    assert admin_authenticated.post(url).status_code == 200
+
+    async with TestSessionLocal() as session:
+        rs = await session.execute(
+            select(AiRequestLog.outcome).order_by(AiRequestLog.id)
+        )
+        assert rs.scalars().all() == ["failed", "failed", "failed", "ungrounded"]
 
 
 async def test_suggestions_count_against_the_plan(

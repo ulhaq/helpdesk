@@ -177,30 +177,50 @@ async def test_reply_drafts_use_internal_documents(
     assert (entry.cited_article_ids, entry.cited_document_ids) == ([], [document["id"]])
 
 
-@pytest.mark.parametrize("full_context_chars", [120_000, 0])
+@pytest.mark.parametrize("semantic_search", [False, True])
 async def test_widget_answers_never_see_internal_documents(
     admin_authenticated: TestClient,
     slug: str,
     claude: FakeClaude,
-    embedder: FakeEmbedder,
-    monkeypatch: pytest.MonkeyPatch,
-    full_context_chars: int,
+    request: pytest.FixtureRequest,
+    semantic_search: bool,
 ) -> None:
-    monkeypatch.setattr(settings, "ai_full_context_max_chars", full_context_chars)
+    # Without an embedder this small knowledge base is sent whole; with one it
+    # is searched. Neither path may include internal documents.
     _article(admin_authenticated, "Refund policy", "Refunds within 30 days.")
     _document(admin_authenticated, "VIP refunds", "VIP refunds within 60 days.")
-    await _embed_everything(embedder)
+    if semantic_search:
+        await _embed_everything(request.getfixturevalue("embedder"))
 
     _ask(admin_authenticated, slug, "refunds")
 
     assert _titles(claude) == ["Refund policy"]
+    expected_mode = "hybrid" if semantic_search else "full"
+    assert (await _last_log()).retrieval_mode == expected_mode
+
+
+async def test_with_an_embedder_a_small_knowledge_base_is_searched(
+    admin_authenticated: TestClient,
+    slug: str,
+    claude: FakeClaude,
+    embedder: FakeEmbedder,
+) -> None:
+    _article(admin_authenticated, "Refund policy", "Refunds within 30 days.")
+    _article(admin_authenticated, "Shipping", "Parcels ship in 2 days.")
+    await _embed_everything(embedder)
+
+    _ask(admin_authenticated, slug, "refund")
+
+    assert _titles(claude) == ["Refund policy"]
+    content = claude.requests[-1]["messages"][0]["content"]
+    assert all("cache_control" not in block for block in content)
+    assert (await _last_log()).retrieval_mode == "hybrid"
 
 
 async def test_semantic_search_finds_paraphrases(
     admin_authenticated: TestClient,
     claude: FakeClaude,
     embedder: FakeEmbedder,
-    search_mode: None,
 ) -> None:
     _document(
         admin_authenticated,
@@ -229,7 +249,6 @@ async def test_keyword_and_semantic_rankings_are_fused(
     slug: str,
     claude: FakeClaude,
     embedder: FakeEmbedder,
-    search_mode: None,
 ) -> None:
     _article(admin_authenticated, "Shipping", "Parcels ship in 2 days.")
     _article(admin_authenticated, "Money back guarantee", "We reimburse you.")
@@ -247,8 +266,9 @@ async def test_embedding_failures_fall_back_to_full_text_search(
     slug: str,
     claude: FakeClaude,
     embedder: FakeEmbedder,
-    search_mode: None,
 ) -> None:
+    # A configured but failing model still searches - by keywords only - rather
+    # than sending the whole knowledge base.
     _article(admin_authenticated, "Refund policy", "Refunds within 30 days.")
     embedder.fail = True
 
@@ -299,7 +319,7 @@ async def test_search_explains_the_ranking_without_calling_claude(
     assert claude.requests == []
     assert result["terms"] == ["refund"]
     assert result["semantic"] == "ok"
-    assert result["sends_everything"] is True
+    assert result["sends_everything"] is False
     assert result["pending_embeddings"] == 0
     first, second = result["results"]
     assert (first["title"], first["source_type"], first["source_id"]) == (
@@ -340,6 +360,8 @@ def test_search_without_an_embedding_model(admin_authenticated: TestClient) -> N
     result = _search(admin_authenticated, "refund")
 
     assert (result["semantic"], result["pending_embeddings"]) == ("off", 0)
+    # Without an embedder, a small knowledge base is still sent whole.
+    assert result["sends_everything"] is True
     assert [r["keyword_rank"] for r in result["results"]] == [1]
 
 

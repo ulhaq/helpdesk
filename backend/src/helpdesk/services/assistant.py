@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from typing import Annotated
 
 from anthropic import AsyncAnthropic
-from fastapi import Depends
+from fastapi import Depends, status
 
 from src.helpdesk.assistant import (
     ANSWER_SYSTEM_PROMPT,
@@ -18,9 +18,11 @@ from src.helpdesk.embeddings import Embedder, get_embedder
 from src.helpdesk.enums import (
     AiFeature,
     AiRequestOutcome,
+    HelpdeskErrorCode,
     HelpdeskUsageMetric,
     KnowledgeSourceType,
     MessageAuthorType,
+    TicketStatus,
 )
 from src.helpdesk.models.ticket import Ticket
 from src.helpdesk.models.ticket_message import TicketMessage
@@ -133,6 +135,14 @@ class ReplySuggestionService(BaseService):
         client = require_client(self.client)
         organization_id = self.current_user.organization_id
         ticket = await self.tickets.get_one(ticket_id)
+        if ticket.status == TicketStatus.CLOSED:
+            # A public reply would be refused (see TicketService.reply), so
+            # don't spend an AI request drafting one.
+            raise ClientException(
+                status.HTTP_409_CONFLICT,
+                f"Ticket is closed. [{ticket_id=}]",
+                error_code=HelpdeskErrorCode.TICKET_CLOSED,
+            )
         await require_within_limit(
             self.repos, organization_id, HelpdeskUsageMetric.AI_REQUESTS_PER_MONTH
         )
@@ -155,23 +165,44 @@ class ReplySuggestionService(BaseService):
         retrieval = await self.retriever.retrieve(
             organization_id, query, include_internal=True
         )
-        # Without matching sources Claude still drafts from the conversation
-        # and names what the agent should confirm.
-        generated = await generate_cited_text(
-            client, system=REPLY_SYSTEM_PROMPT, retrieval=retrieval, prompt=prompt
-        )
+
+        async def record(
+            outcome: AiRequestOutcome, generated: GeneratedText | None = None
+        ) -> None:
+            await _record(
+                self.logs,
+                organization_id=organization_id,
+                feature=AiFeature.REPLY_SUGGESTION,
+                query=query,
+                retrieval=retrieval,
+                outcome=outcome,
+                generated=generated,
+            )
+
+        try:
+            # Without matching sources Claude still drafts from the conversation
+            # and names what the agent should confirm.
+            generated = await generate_cited_text(
+                client, system=REPLY_SYSTEM_PROMPT, retrieval=retrieval, prompt=prompt
+            )
+            if not generated.text:
+                raise ClientException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "The AI assistant returned an empty draft",
+                    error_code=HelpdeskErrorCode.AI_DECLINED,
+                )
+        except ClientException:
+            # Raising rolls back the request's transaction, so commit the log
+            # row first to keep a trace of the failed attempt. Nothing else has
+            # been written yet, and a failed attempt uses no quota.
+            await record(AiRequestOutcome.FAILED)
+            await self.repos.db.commit()
+            raise
+
         await track_usage(
             self.repos, organization_id, HelpdeskUsageMetric.AI_REQUESTS_PER_MONTH
         )
-        await _record(
-            self.logs,
-            organization_id=organization_id,
-            feature=AiFeature.REPLY_SUGGESTION,
-            query=query,
-            retrieval=retrieval,
-            outcome=_outcome(generated),
-            generated=generated,
-        )
+        await record(_outcome(generated), generated)
         return ReplySuggestionOut(text=generated.text, sources=_sources(generated))
 
     @staticmethod

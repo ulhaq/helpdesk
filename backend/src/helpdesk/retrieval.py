@@ -3,14 +3,16 @@
 Sources are the published help center articles and - for agent-facing
 features only - internal knowledge documents.
 
-- Small knowledge bases are sent whole: they fit comfortably and, being the
-  same for every request, are served from the prompt cache.
-- Larger ones get only the best-matching sections, within a passage and size
-  budget. Sections are ranked by full-text search and, when an embedding
-  provider is configured, by semantic similarity too; the two rankings are
+- With an embedding model configured, every request gets only the
+  best-matching sections, within a passage and size budget. Sections are
+  ranked by full-text search and by semantic similarity; the two rankings are
   merged with reciprocal rank fusion. Keyword search is precise on exact terms
   (error codes, plan names); embeddings catch paraphrases and loosely written
-  internal text.
+  internal text. If the model fails for a request, that request still
+  searches, by keywords only.
+- Without an embedding model, keyword search alone misses paraphrases, so
+  small knowledge bases are sent whole instead (served from the prompt cache);
+  larger ones are searched by keywords.
 
 `KnowledgeRetriever.retrieve` is the entry point for AI requests; `explain`
 shows the same ranking without calling Claude (the knowledge search tester).
@@ -214,6 +216,11 @@ class KnowledgeRetriever:
         self.chunks.set_organization_scope(organization_id)
 
     async def _fits_whole(self, *, include_internal: bool) -> bool:
+        """Whether to send the whole knowledge base instead of searching: only
+        without an embedding model. With one, search is reliable enough, and
+        sending less is cheaper, faster and exposes less internal text."""
+        if self.embedder is not None:
+            return False
         size = await self.articles.published_chars()
         if include_internal:
             size += await self.documents.active_chars()

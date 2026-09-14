@@ -31,9 +31,11 @@ class HelpdeskSettings(EnvSettings):
     )
     ai_model: str = "claude-haiku-4-5"
     ai_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
-    # Knowledge base context (see src/helpdesk/retrieval.py): help centers up
-    # to this size are sent whole and prompt-cached; larger ones get only the
-    # best-matching article sections, within the passage and size budget.
+    # Knowledge base context (see src/helpdesk/retrieval.py). Only without an
+    # embedding model: knowledge bases up to this size are sent whole and
+    # prompt-cached, since keyword search alone misses paraphrases. Larger ones
+    # - and all of them once an embedding model is configured - get only the
+    # best-matching sections, within the passage and size budget.
     ai_full_context_max_chars: int = 120_000
     ai_retrieval_max_passages: int = 8
     ai_retrieval_max_chars: int = 32_000
